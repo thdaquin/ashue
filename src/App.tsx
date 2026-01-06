@@ -1,10 +1,10 @@
 import './App.css'
-import PDFConverter from './components/PDFConverter'
+import PDFFlow from './components/PDFFlow'
 
 function App() {
   return (
     <>
-      <PDFConverter />
+      <PDFFlow />
     </>
   )
 }
