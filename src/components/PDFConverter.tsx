@@ -15,6 +15,7 @@ type PDFConverterProps = {
 export default function PDFConverter({ initialFile }: PDFConverterProps) {
   const [file, setFile] = useState<File | null>(initialFile ?? null);
   const [pageCount, setPageCount] = useState<number | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<any>(null);
 
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -44,6 +45,7 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
       const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
       setPageCount(pdf.numPages);
       setPreviewPage(Math.max(1, Math.floor(pdf.numPages / 3)));
+      setPdfDoc(pdf);
     })();
   }, [file]);
 
@@ -138,7 +140,7 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     const viewport = page.getViewport({ scale });
 
     const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
@@ -148,22 +150,24 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     const data = imageData.data;
 
     const hist = new Uint32Array(256);
+    const grayValues = new Uint8Array(data.length / 4);
     let min = 255;
     let max = 0;
 
-    for (let i = 0; i < data.length; i += 4) {
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
       const g = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-      hist[g | 0]++;
-      min = Math.min(min, g);
-      max = Math.max(max, g);
+      const gray = g | 0;
+      grayValues[j] = gray;
+      hist[gray]++;
+      if (g < min) min = g;
+      if (g > max) max = g;
     }
 
     const threshold = otsuThreshold(hist, canvas.width * canvas.height) + bias;
     const contrastScale = 255 / Math.max(1, max - min);
 
-    for (let i = 0; i < data.length; i += 4) {
-      let g = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
-      g = clamp((g - min) * contrastScale);
+    for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+      const g = clamp((grayValues[j] - min) * contrastScale);
       const bw = softBW(g, threshold);
       data[i] = data[i + 1] = data[i + 2] = bw;
     }
@@ -171,11 +175,16 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     cleanupSpeckles(data, canvas.width, canvas.height);
     ctx.putImageData(imageData, 0, 0);
 
-    return preview ? extractCenterPreview(canvas) : canvas.toDataURL('image/png');
+    const result = preview ? extractCenterPreview(canvas) : canvas.toDataURL('image/jpeg', 0.95);
+    
+    canvas.width = 0;
+    canvas.height = 0;
+    
+    return result;
   };
 
   const generatePreview = async () => {
-    if (!file || !pageCount) return;
+    if (!file || !pageCount || !pdfDoc) return;
 
     setSelectedPreviewIndex(null);
 
@@ -188,9 +197,6 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     setPreviewing(true);
     setPreviewOptions([]);
 
-    const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
-    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-
     const dpis = [dpi - 100, dpi, dpi + 100].filter(d => d > 0);
     const biases = [thresholdBias - 25, thresholdBias, thresholdBias + 25];
 
@@ -198,7 +204,7 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
 
     for (const d of dpis) {
       for (const b of biases) {
-        const image = await processPage(pdf, previewPage, d, b, true);
+        const image = await processPage(pdfDoc, previewPage, d, b, true);
         previews.push({ dpi: d, bias: b, image });
       }
     }
@@ -208,27 +214,28 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
   };
 
   const convertFull = async () => {
-    if (!file || !pageCount) return;
+    if (!file || !pageCount || !pdfDoc) return;
 
     setProcessing(true);
     setProgress(0);
     setResultPdfUrl(null);
 
-    const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
-    const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-
     const doc = new jsPDF({ orientation: 'portrait', unit: 'px' });
 
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const img = await processPage(pdf, p, dpi, thresholdBias);
+    for (let p = 1; p <= pdfDoc.numPages; p++) {
+      const img = await processPage(pdfDoc, p, dpi, thresholdBias);
       const imgProps = doc.getImageProperties(img);
       const width = doc.internal.pageSize.getWidth();
       const height = (imgProps.height * width) / imgProps.width;
 
       if (p > 1) doc.addPage();
-      doc.addImage(img, 'PNG', 0, 0, width, height);
+      doc.addImage(img, 'JPEG', 0, 0, width, height);
 
-      setProgress(Math.round((p / pdf.numPages) * 100));
+      setProgress(Math.round((p / pdfDoc.numPages) * 100));
+
+      if (p % 5 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
     }
 
     const blob = doc.output('blob');
@@ -315,7 +322,7 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
             <button
               onClick={convertFull}
               disabled={processing}
-              className="px-8 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold"
+              className="px-8 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Convert full PDF
             </button>

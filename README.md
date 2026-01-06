@@ -35,6 +35,8 @@ Adjustable threshold and dpi for black/white conversion
 3. Click the "Convert full pdf" button
 4. Download result
 
-## Why the name?
+## FAQ
+
+### Why the name?
 
 Ashue is a blend of "ash" and "hue," so the app's name evokes its monochrome goals. It also sounds like "eschew," since I would avoid using many PDFs on eink if it weren't for this program.
