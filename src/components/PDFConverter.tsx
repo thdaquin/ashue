@@ -48,7 +48,6 @@ export default function PDFConverter() {
           viewport: viewport
         }).promise;
 
-        // Convert to black and white
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
 

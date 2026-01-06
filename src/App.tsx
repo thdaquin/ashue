@@ -1,8 +1,7 @@
 import './App.css'
-import PDFConverter from './components/PdfConverter'
+import PDFConverter from './components/PDFConverter'
 
 function App() {
-
   return (
     <>
       <PDFConverter />
