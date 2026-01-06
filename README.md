@@ -15,7 +15,7 @@ Check it out on github pages! https://thdaquin.github.io/ashue/
 
 <p align="center">
   <img
-    src="https://github.com/user-attachments/assets/ca5a2401-3b5d-4c2a-a369-d27be77cf874"
+    src="https://github.com/user-attachments/assets/1e7e3cb6-2ba1-4c50-a8ad-9fdd5cced7b2"
     width="600"
   />
   <br />
