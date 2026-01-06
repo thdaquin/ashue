@@ -21,7 +21,7 @@ export default function PDFSelector({ onSelect }: PDFSelectorProps) {
           <FileText size={48} className="text-blue-500" />
         </div>
 
-        <h1 className="text-2xl font-semibold">Upload a PDF</h1>
+        <h1 className="text-2xl font-semibold">Welcome to Ashue!</h1>
         <p className="text-slate-400 text-sm">
           Select a PDF to start the conversion process
         </p>
