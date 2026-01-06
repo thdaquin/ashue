@@ -25,15 +25,15 @@ Check it out on github pages! https://thdaquin.github.io/ashue/
 ## Features
 
 Upload PDFs with yellowed/tinted pages
-Adjustable threshold for black/white conversion
-Preview converted pages before download
+Preview pages before download
+Adjustable threshold and dpi for black/white conversion
 
 ## Usage
 
 1. Select a PDF file
-2. Adjust the threshold slider (default: 128)
-3. Click "Convert to B&W"
-4. Preview and download
+2. Adjust the threshold and dpi (use the preview for help!)
+3. Click the "Convert full pdf" button
+4. Download result
 
 ## Why the name?
 
