@@ -41,7 +41,13 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     if (!file) return;
     (async () => {
       const pdfjsLib = (window as any)['pdfjs-dist/build/pdf'];
-      const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+      
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      
+      const pdf = await pdfjsLib.getDocument({
+        data: await file.arrayBuffer()
+      }).promise;
       setPageCount(pdf.numPages);
       setPreviewPage(Math.max(1, Math.floor(pdf.numPages / 3)));
       setPdfDoc(pdf);
@@ -219,6 +225,7 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     setProgress(0);
     setResultPdfUrl(null);
 
+    const { jsPDF } = (window as any).jspdf;
     const doc = new jsPDF({ orientation: 'portrait', unit: 'px' });
 
     for (let p = 1; p <= pdfDoc.numPages; p++) {
