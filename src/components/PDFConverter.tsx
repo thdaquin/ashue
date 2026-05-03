@@ -226,16 +226,25 @@ export default function PDFConverter({ initialFile }: PDFConverterProps) {
     setResultPdfUrl(null);
 
     const { jsPDF } = (window as any).jspdf;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'px' });
+    const doc = new jsPDF({ unit: 'px', hotfixes: ['px_scaling'] });
 
     for (let p = 1; p <= pdfDoc.numPages; p++) {
       const img = await processPage(pdfDoc, p, dpi, thresholdBias);
       const imgProps = doc.getImageProperties(img);
-      const width = doc.internal.pageSize.getWidth();
-      const height = (imgProps.height * width) / imgProps.width;
 
-      if (p > 1) doc.addPage();
-      doc.addImage(img, 'JPEG', 0, 0, width, height);
+      // Use image pixel dimensions as the PDF page size so nothing gets clipped
+      const pageWidth = imgProps.width;
+      const pageHeight = imgProps.height;
+
+      if (p > 1) {
+        doc.addPage([pageWidth, pageHeight]);
+      } else {
+        // Resize the first page to match the image
+        doc.internal.pageSize.width = pageWidth;
+        doc.internal.pageSize.height = pageHeight;
+      }
+
+      doc.addImage(img, 'JPEG', 0, 0, pageWidth, pageHeight);
 
       setProgress(Math.round((p / pdfDoc.numPages) * 100));
 
