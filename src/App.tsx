@@ -1,5 +1,5 @@
 import './App.css'
-import PDFFlow from './components/PDFFlow'
+import PDFFlow from './components/PdfFlow'
 
 function App() {
   return (

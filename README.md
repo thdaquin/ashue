@@ -51,6 +51,25 @@ Ashue is a blend of "ash" and "hue," evoking its monochrome purpose. It also sou
 
 The original PDF stores pages as compact vector data. Ashue rasterizes each page to pixels before converting it, which produces larger files. Lowering the DPI setting (try 150–200 for e-ink) is the easiest way to reduce output size while keeping text readable on your device.
 
-## Tech
+## Some Tech & Various Decisions/Changes I've Made Along the Way
 
-Built with React, TypeScript, Vite, and Tailwind CSS. PDF rendering via [pdf.js](https://mozilla.github.io/pdf.js/), output via [jsPDF](https://github.com/parallax/jsPDF). Deployed on GitHub Pages.
+Built with React, TypeScript, Vite, and Tailwind CSS. PDF rendering via pdf.js, output via pdf-lib. Deployed on GitHub Pages.
+
+### Why fully client-side?
+The files this tool is intended to handle (which, for me, includes old books, personal documents, scanned manuscripts) felt like things people shouldn't have to upload to a stranger's server. Keeping everything in the browser was a privacy decision as much as a practical one. It also means there's no backend to maintain and no cost to scale. The downside is that the client is slow. For me and my purposes, that tradeoff was a fine one.
+
+### Image processing method
+Rather than using a fixed brightness threshold to decide what's black and what's white, the app uses Otsu's method, which is an algorithm that analyses the histogram of each page and finds the threshold that best separates foreground from background. This means it adapts automatically to pages with different levels of yellowing or tinting without any manual tuning. A soft transition zone and a speckle cleanup pass are applied on top to reduce noise.
+
+### Switching from jsPDF to pdf-lib
+The original output library was jsPDF, which works by accumulating all page image data in a single in-memory buffer before writing the file. On long PDFs at high DPI this caused an allocation overflow crash as the buffer simply exceeded what the browser could hold.
+pdf-lib was swapped in as a replacement. It builds the PDF structure incrementally, embedding each page image directly as it goes rather than staging everything at once. This eliminated the memory ceiling entirely, allowing any DPI on any length document.
+
+### PNG for output (not JPEG)
+The output pages are pure black and white: two colors. JPEG compression is designed for photographic images with continuous gradients, and introduces visible artefacts (blurring, ringing) around sharp edges like text. PNG uses lossless compression that exploits large uniform regions, which is exactly what a B&W page of text is. The result is both smaller and sharper than JPEG for this specific use case.
+
+### Page clipping bug
+Early versions of the converter cropped the bottom of every output page. Turns out, the cause was that jsPDF initialised with a fixed default page height, and pages were being scaled to fit the width without adjusting the height. So, any content below the default cutoff was silently lost. The fix was to set each PDF page's dimensions to exactly match the rendered image dimensions, so nothing can be clipped regardless of the source document's aspect ratio.
+
+### Cancelling conversion on back
+If a user clicked the back button mid-conversion, the async processing loop kept running in the background even though the UI had already reset. The fix uses an AbortController, a standard browser API for cancelling async work. When back is clicked, the controller is signalled, and the loop checks that signal at the start of each page and exits cleanly at the next safe checkpoint rather than mid-operation.
