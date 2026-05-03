@@ -51,12 +51,15 @@ Ashue is a blend of "ash" and "hue," evoking its monochrome purpose. It also sou
 
 The original PDF stores pages as compact vector data. Ashue rasterizes each page to pixels before converting it, which produces larger files. Lowering the DPI setting (try 150–200 for e-ink) is the easiest way to reduce output size while keeping text readable on your device.
 
-## Some Tech & Various Decisions/Changes I've Made Along the Way
+## Some Tech & Various Design Hurdles Along the Way
 
 Built with React, TypeScript, Vite, and Tailwind CSS. PDF rendering via pdf.js, output via pdf-lib. Deployed on GitHub Pages.
 
 ### Why fully client-side?
 The files this tool is intended to handle (which, for me, includes old books, personal documents, scanned manuscripts) felt like things people shouldn't have to upload to a stranger's server. Keeping everything in the browser was a privacy decision as much as a practical one. It also means there's no backend to maintain and no cost to scale. The downside is that the client is slow. For me and my purposes, that tradeoff was a fine one.
+
+### What's on the main thread
+The pixel processing (Otsu thresholding, black and white conversion, speckle cleanup) currently runs on the main JavaScript thread. This is why the UI feels sluggish during conversion. The browser's single thread is busy crunching pixels and has less time for anything else. The right fix was a Web Worker, a second JS thread the browser can spin up to handle the computation in parallel, leaving the main thread free for the UI. pdf.js already does this for PDF parsing, which is why it needs its worker file loaded separately. Moving the image processing into a worker is a planned improvement.
 
 ### Image processing method
 Rather than using a fixed brightness threshold to decide what's black and what's white, the app uses Otsu's method, which is an algorithm that analyses the histogram of each page and finds the threshold that best separates foreground from background. This means it adapts automatically to pages with different levels of yellowing or tinting without any manual tuning. A soft transition zone and a speckle cleanup pass are applied on top to reduce noise.
@@ -73,3 +76,6 @@ Early versions of the converter cropped the bottom of every output page. Turns o
 
 ### Cancelling conversion on back
 If a user clicked the back button mid-conversion, the async processing loop kept running in the background even though the UI had already reset. The fix uses an AbortController, a standard browser API for cancelling async work. When back is clicked, the controller is signalled, and the loop checks that signal at the start of each page and exits cleanly at the next safe checkpoint rather than mid-operation.
+
+### 1-bit PNG output
+The browser's canvas API can only export images as 8-bit PNG or JPEG, meaning each pixel is stored across 4 bytes (RGBA) even when the image is pure black and white. A custom PNG encoder was written to pack the processed pixel data down to 1 bit per pixel before embedding it in the PDF. This required manually constructing the PNG binary: packing pixels into bit-packed rows, compressing them using the browser's native CompressionStream API, and wrapping the result in valid PNG chunks. The output is identical visually but typically 4-8x smaller than the 8-bit equivalent.

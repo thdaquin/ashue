@@ -80,13 +80,135 @@ const extractCenterPreview = (source: HTMLCanvasElement): string => {
   return canvas.toDataURL('image/png');
 };
 
-export const processPage = async (
+// ---------------------------------------------------------------------------
+// 1-bit PNG encoder
+// The browser canvas API can only output 8-bit PNGs. Since our image is pure
+// black and white we can encode it manually as a 1-bit PNG, which is 8x more
+// compact before compression and compresses far better too.
+// ---------------------------------------------------------------------------
+
+const crc32Table = (() => {
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let j = 0; j < 8; j++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[i] = c;
+  }
+  return table;
+})();
+
+const crc32 = (data: Uint8Array, start = 0, end = data.length): number => {
+  let crc = 0xffffffff;
+  for (let i = start; i < end; i++) crc = crc32Table[(crc ^ data[i]) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const writeUint32BE = (buf: Uint8Array, offset: number, value: number): void => {
+  buf[offset]     = (value >>> 24) & 0xff;
+  buf[offset + 1] = (value >>> 16) & 0xff;
+  buf[offset + 2] = (value >>>  8) & 0xff;
+  buf[offset + 3] =  value         & 0xff;
+};
+
+const deflateRaw = async (data: Uint8Array): Promise<Uint8Array> => {
+  const cs = new CompressionStream('deflate-raw');
+  const writer = cs.writable.getWriter();
+  writer.write(data as BufferSource);
+  writer.close();
+  const chunks: Uint8Array[] = [];
+  const reader = cs.readable.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(total);
+  let pos = 0;
+  for (const c of chunks) { out.set(c, pos); pos += c.length; }
+  return out;
+};
+
+const encodeTo1BitPng = async (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): Promise<Uint8Array> => {
+  // Pack RGBA pixel data into 1-bit rows (1 = white, 0 = black)
+  // PNG rows are padded to a full byte boundary
+  const rowBytes = Math.ceil(width / 8);
+
+  // Each row gets a filter byte (0x00 = None) prepended
+  const rawRows = new Uint8Array(height * (1 + rowBytes));
+
+  for (let y = 0; y < height; y++) {
+    const rowStart = y * (1 + rowBytes);
+    rawRows[rowStart] = 0x00; // filter type: None
+    for (let x = 0; x < width; x++) {
+      const px = (y * width + x) * 4;
+      const isWhite = data[px] > 127;
+      if (isWhite) {
+        rawRows[rowStart + 1 + (x >> 3)] |= 0x80 >> (x & 7);
+      }
+    }
+  }
+
+  const compressed = await deflateRaw(rawRows);
+
+  // Build zlib wrapper around deflate stream (required by PNG)
+  const zlib = new Uint8Array(compressed.length + 6);
+  zlib[0] = 0x78; // CMF
+  zlib[1] = 0x9c; // FLG
+  zlib.set(compressed, 2);
+  const adler = (() => {
+    let s1 = 1, s2 = 0;
+    for (const b of rawRows) { s1 = (s1 + b) % 65521; s2 = (s2 + s1) % 65521; }
+    return (s2 << 16) | s1;
+  })();
+  writeUint32BE(zlib, zlib.length - 4, adler);
+
+  // PNG chunk helper
+  const chunk = (type: string, payload: Uint8Array): Uint8Array => {
+    const typeBytes = new TextEncoder().encode(type);
+    const buf = new Uint8Array(12 + payload.length);
+    writeUint32BE(buf, 0, payload.length);
+    buf.set(typeBytes, 4);
+    buf.set(payload, 8);
+    writeUint32BE(buf, 8 + payload.length, crc32(buf, 4, 8 + payload.length));
+    return buf;
+  };
+
+  // IHDR: width, height, bit depth=1, color type=0 (grayscale), compression, filter, interlace
+  const ihdr = new Uint8Array(13);
+  writeUint32BE(ihdr, 0, width);
+  writeUint32BE(ihdr, 4, height);
+  ihdr[8] = 1;  // bit depth: 1
+  ihdr[9] = 0;  // color type: grayscale
+  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+
+  const sig = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const ihdrChunk = chunk('IHDR', ihdr);
+  const idatChunk = chunk('IDAT', zlib);
+  const iendChunk = chunk('IEND', new Uint8Array(0));
+
+  const total = sig.length + ihdrChunk.length + idatChunk.length + iendChunk.length;
+  const png = new Uint8Array(total);
+  let pos = 0;
+  for (const part of [sig, ihdrChunk, idatChunk, iendChunk]) {
+    png.set(part, pos);
+    pos += part.length;
+  }
+
+  return png;
+};
+
+const processPageInternal = async (
   pdf: unknown,
   pageNum: number,
   dpi: number,
   bias: number,
-  preview = false
-): Promise<string> => {
+  preview: boolean
+): Promise<string | Uint8Array> => {
   const page = await (pdf as any).getPage(pageNum);
   const scale = dpi / 96;
   const viewport = page.getViewport({ scale });
@@ -125,12 +247,35 @@ export const processPage = async (
   }
 
   cleanupSpeckles(data, canvas.width, canvas.height);
-  ctx.putImageData(imageData, 0, 0);
 
-  const result = preview ? extractCenterPreview(canvas) : canvas.toDataURL('image/png');
+  if (preview) {
+    ctx.putImageData(imageData, 0, 0);
+    const result = extractCenterPreview(canvas);
+    canvas.width = 0;
+    canvas.height = 0;
+    return result;
+  }
 
+  // Full conversion: encode as 1-bit PNG directly from pixel data
+  // without putting it back on the canvas (saves a round-trip)
+  const png = await encodeTo1BitPng(data, canvas.width, canvas.height);
   canvas.width = 0;
   canvas.height = 0;
-
-  return result;
+  return png;
 };
+
+export const processPage = (
+  pdf: unknown,
+  pageNum: number,
+  dpi: number,
+  bias: number
+): Promise<string> =>
+  processPageInternal(pdf, pageNum, dpi, bias, true) as Promise<string>;
+
+export const processPageFull = (
+  pdf: unknown,
+  pageNum: number,
+  dpi: number,
+  bias: number
+): Promise<Uint8Array> =>
+  processPageInternal(pdf, pageNum, dpi, bias, false) as Promise<Uint8Array>;

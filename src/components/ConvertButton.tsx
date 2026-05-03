@@ -1,3 +1,5 @@
+import { Loader2 } from 'lucide-react';
+
 type ConvertButtonProps = {
   processing: boolean;
   progress: number;
@@ -28,9 +30,10 @@ export default function ConvertButton({
           <button
             onClick={onConvert}
             disabled={disabled}
-            className="px-8 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-8 py-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Convert full PDF
+            {processing && <Loader2 size={18} className="animate-spin" />}
+            {processing ? 'Processing…' : 'Convert full PDF'}
           </button>
         )}
       </div>

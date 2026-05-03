@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { PDFDocument } from 'pdf-lib';
-import { processPage } from '../lib/imageProcessing';
+import { processPageFull } from '../lib/imageProcessing';
 import { type PdfDoc } from '../lib/pdfLoader';
 
 export const useConvert = (pdfDoc: PdfDoc | null) => {
@@ -13,7 +13,6 @@ export const useConvert = (pdfDoc: PdfDoc | null) => {
   const convertFull = async (dpi: number, bias: number) => {
     if (!pdfDoc) return;
 
-    // Cancel any in-flight conversion before starting a new one
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -22,23 +21,19 @@ export const useConvert = (pdfDoc: PdfDoc | null) => {
     setProgress(0);
     setResultPdfUrl(null);
 
-    const pdfDoc_ = await PDFDocument.create();
+    const doc = await PDFDocument.create();
 
     for (let p = 1; p <= pdfDoc.numPages; p++) {
-      // Stop immediately if aborted (e.g. user clicked Back)
       if (controller.signal.aborted) return;
 
-      const dataUrl = await processPage(pdfDoc, p, dpi, bias);
+      // processPage returns Uint8Array (1-bit PNG bytes) for full conversion
+      const pngBytes = await processPageFull(pdfDoc, p, dpi, bias);
 
       if (controller.signal.aborted) return;
 
-      const base64 = dataUrl.split(',')[1];
-      const pngBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-
-      const pngImage = await pdfDoc_.embedPng(pngBytes);
+      const pngImage = await doc.embedPng(pngBytes);
       const { width, height } = pngImage;
-
-      const page = pdfDoc_.addPage([width, height]);
+      const page = doc.addPage([width, height]);
       page.drawImage(pngImage, { x: 0, y: 0, width, height });
 
       setProgress(Math.round((p / pdfDoc.numPages) * 100));
@@ -50,7 +45,7 @@ export const useConvert = (pdfDoc: PdfDoc | null) => {
 
     if (controller.signal.aborted) return;
 
-    const pdfBytes = await pdfDoc_.save();
+    const pdfBytes = await doc.save();
     const blob = new Blob([pdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
     setResultPdfUrl(URL.createObjectURL(blob));
     setProcessing(false);
@@ -59,10 +54,8 @@ export const useConvert = (pdfDoc: PdfDoc | null) => {
   };
 
   const cleanup = () => {
-    // Signal the loop to stop
     abortRef.current?.abort();
     abortRef.current = null;
-
     if (resultPdfUrl) URL.revokeObjectURL(resultPdfUrl);
     setResultPdfUrl(null);
     setProgress(0);

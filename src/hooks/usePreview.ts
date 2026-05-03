@@ -35,7 +35,7 @@ export const usePreview = (pdfDoc: PdfDoc | null, pageCount: number | null) => {
 
     for (const d of dpis) {
       for (const b of biases) {
-        const image = await processPage(pdfDoc, previewPage, d, b, true);
+        const image = await processPage(pdfDoc, previewPage, d, b);
         previews.push({ dpi: d, bias: b, image });
       }
     }
