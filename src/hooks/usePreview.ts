@@ -29,7 +29,7 @@ export const usePreview = (pdfDoc: PdfDoc | null, pageCount: number | null) => {
     setPreviewing(true);
     setPreviewOptions([]);
 
-    const dpis = [dpi - 100, dpi, dpi + 100].filter((d) => d > 0);
+    const dpis = [dpi - 50, dpi, dpi + 50].filter((d) => d > 0);
     const biases = [bias - 25, bias, bias + 25];
     const previews: PreviewOption[] = [];
 

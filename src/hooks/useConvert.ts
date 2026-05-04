@@ -26,13 +26,11 @@ export const useConvert = (pdfDoc: PdfDoc | null) => {
     for (let p = 1; p <= pdfDoc.numPages; p++) {
       if (controller.signal.aborted) return;
 
-      // processPage returns Uint8Array (1-bit PNG bytes) for full conversion
-      const pngBytes = await processPageFull(pdfDoc, p, dpi, bias);
+      const { png, width, height } = await processPageFull(pdfDoc, p, dpi, bias);
 
       if (controller.signal.aborted) return;
 
-      const pngImage = await doc.embedPng(pngBytes);
-      const { width, height } = pngImage;
+      const pngImage = await doc.embedPng(png);
       const page = doc.addPage([width, height]);
       page.drawImage(pngImage, { x: 0, y: 0, width, height });
 
